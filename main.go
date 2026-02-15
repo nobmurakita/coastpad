@@ -17,6 +17,11 @@ var app *App
 func main() {
 	app = NewApp()
 
+	if err := app.Open(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -26,10 +31,7 @@ func main() {
 	}()
 
 	fmt.Println("antifriction-trackpad started. Press Ctrl+C to stop.")
-	if err := app.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+	app.Run()
 }
 
 // 慣性パラメータ
@@ -66,15 +68,13 @@ func NewApp() *App {
 	}
 }
 
-// Start はデバイス監視を開始し、慣性ループに入る。
-// run() がブロックするため、Stop() が呼ばれるまで返らない。
-func (a *App) Start() error {
+// Open はタッチデバイスを検出し、コールバックを登録する。
+func (a *App) Open() error {
 	devices, err := OpenTouchDevices()
 	if err != nil {
 		return fmt.Errorf("failed to open touch devices: %w", err)
 	}
 	a.devices = devices
-	a.run()
 	return nil
 }
 
@@ -86,8 +86,8 @@ func (a *App) Stop() {
 	})
 }
 
-// run は 100Hz のループで慣性移動を適用する。
-func (a *App) run() {
+// Run は 100Hz のループで慣性移動を適用する。Stop() が呼ばれるまでブロックする。
+func (a *App) Run() {
 	ticker := time.NewTicker(loopInterval)
 	defer ticker.Stop()
 
@@ -102,25 +102,19 @@ func (a *App) run() {
 			dt := t2.Sub(t1).Seconds()
 			t1 = t2
 
-			vx, vy := a.applyDecay(dt)
-			if vx != 0 || vy != 0 {
-				moveMouse(vx*dt, vy*dt)
+			a.mu.Lock()
+			if a.vx != 0 || a.vy != 0 {
+				moveMouse(a.vx*dt, a.vy*dt)
+				a.applyDecay(dt)
 			}
+			a.mu.Unlock()
 		}
 	}
 }
 
-// applyDecay は慣性速度に指数減衰を適用し、適用前の速度を返す。
-func (a *App) applyDecay(dt float64) (vx, vy float64) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
-	vx, vy = a.vx, a.vy
-	if vx == 0 && vy == 0 {
-		return 0, 0
-	}
-
-	// 指数減衰（常に 0 < factor < 1）
+// applyDecay は慣性速度に指数減衰を適用する。
+// mu をロックした状態で呼ぶこと。
+func (a *App) applyDecay(dt float64) {
 	factor := math.Exp(-decayRate * dt)
 	a.vx *= factor
 	a.vy *= factor
@@ -129,8 +123,6 @@ func (a *App) applyDecay(dt float64) (vx, vy float64) {
 		a.vx = 0
 		a.vy = 0
 	}
-
-	return vx, vy
 }
 
 // onTouchFrame はマルチタッチコールバックから呼ばれる。
