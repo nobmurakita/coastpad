@@ -7,7 +7,10 @@ package main
 #include "multitouch.h"
 */
 import "C"
-import "unsafe"
+import (
+	"fmt"
+	"unsafe"
+)
 
 // MTDeviceRef は MultitouchSupport のデバイスハンドル（C の void*）。
 type MTDeviceRef = unsafe.Pointer
@@ -19,9 +22,17 @@ type TouchDevices struct {
 }
 
 // OpenTouchDevices は接続中の全デバイスを検出し、タッチコールバックを登録して監視を開始する。
-func OpenTouchDevices() *TouchDevices {
+func OpenTouchDevices() (*TouchDevices, error) {
 	list := C.MTDeviceCreateList()
+	if list == 0 {
+		return nil, fmt.Errorf("MTDeviceCreateList failed: no multitouch devices found")
+	}
+
 	count := C.CFArrayGetCount(list)
+	if count == 0 {
+		C.CFRelease(C.CFTypeRef(list))
+		return nil, fmt.Errorf("no multitouch devices found")
+	}
 
 	devs := make([]MTDeviceRef, count)
 	for i := C.CFIndex(0); i < count; i++ {
@@ -33,7 +44,7 @@ func OpenTouchDevices() *TouchDevices {
 		C.MTDeviceStart(C.MTDeviceRef(dev), 0)
 	}
 
-	return &TouchDevices{list: list, devs: devs}
+	return &TouchDevices{list: list, devs: devs}, nil
 }
 
 // Close はコールバックを解除し、デバイス監視を停止し、デバイスリストを解放する。
@@ -57,15 +68,17 @@ func goTouchCallback(device MTDeviceRef, data *C.Finger, dataNum C.int, timestam
 	if app == nil {
 		return
 	}
+	app.onTouchFrame(hasActiveFinger(data, int(dataNum)), float64(timestamp))
+}
 
-	isTouched := false
-	fingers := (*[1024]C.Finger)(unsafe.Pointer(data))
-	for i := 0; i < int(dataNum); i++ {
-		if int(fingers[i].state) == touchStateTouching {
-			isTouched = true
-			break
+const touchStateTouching = 4 // タッチ中の state 値
+
+// hasActiveFinger はタッチ中（state == 4）の指が1本以上あるかを返す。
+func hasActiveFinger(data *C.Finger, count int) bool {
+	for _, f := range unsafe.Slice(data, count) {
+		if int(f.state) == touchStateTouching {
+			return true
 		}
 	}
-
-	app.onTouchFrame(isTouched, float64(timestamp))
+	return false
 }

@@ -23,20 +23,21 @@ func main() {
 		<-sig
 		fmt.Println("\nStopping...")
 		app.Stop()
-		os.Exit(0)
 	}()
 
 	fmt.Println("antifriction-trackpad started. Press Ctrl+C to stop.")
-	app.Start()
+	if err := app.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 // 慣性パラメータ
 const (
 	decayRate          = 5.0                   // 減衰係数 (1/sec)
-	stopThreshold      = 10.0                  // 停止閾値 (px/sec)
-	loopInterval       = 10 * time.Millisecond // 100Hz
-	minTimeDelta       = 1e-9                  // ゼロ除算防御
-	touchStateTouching = 4                     // タッチ中の state 値
+	stopThreshold = 10.0                  // 停止閾値 (px/sec)
+	loopInterval  = 10 * time.Millisecond // 100Hz
+	minTimeDelta  = 1e-9                  // ゼロ除算防御
 )
 
 // cursorRecord はある時点のカーソル位置を保持する。
@@ -53,9 +54,9 @@ type App struct {
 	isTouched bool
 	vx, vy    float64 // 慣性速度 (px/sec)
 
-	devices *TouchDevices
-	running bool
-	stop    chan struct{}
+	devices  *TouchDevices
+	stopOnce sync.Once
+	stop     chan struct{}
 }
 
 // NewApp は App を初期化して返す。
@@ -65,24 +66,28 @@ func NewApp() *App {
 	}
 }
 
-// Start はデバイス監視を開始し、慣性ループに入る（ブロッキング）。
-func (a *App) Start() {
-	a.devices = OpenTouchDevices()
-	a.running = true
-	a.Run()
+// Start はデバイス監視を開始し、慣性ループに入る。
+// run() がブロックするため、Stop() が呼ばれるまで返らない。
+func (a *App) Start() error {
+	devices, err := OpenTouchDevices()
+	if err != nil {
+		return fmt.Errorf("failed to open touch devices: %w", err)
+	}
+	a.devices = devices
+	a.run()
+	return nil
 }
 
 // Stop はデバイス監視と慣性ループを停止する。
 func (a *App) Stop() {
-	if a.running {
+	a.stopOnce.Do(func() {
 		close(a.stop)
 		a.devices.Close()
-		a.running = false
-	}
+	})
 }
 
-// Run は 100Hz のループで慣性移動を適用する。
-func (a *App) Run() {
+// run は 100Hz のループで慣性移動を適用する。
+func (a *App) run() {
 	ticker := time.NewTicker(loopInterval)
 	defer ticker.Stop()
 
@@ -97,54 +102,87 @@ func (a *App) Run() {
 			dt := t2.Sub(t1).Seconds()
 			t1 = t2
 
-			a.mu.Lock()
-			if a.vx != 0 || a.vy != 0 {
-				moveMouse(a.vx*dt, a.vy*dt)
-
-				// 指数減衰（常に 0 < factor < 1）
-				factor := math.Exp(-decayRate * dt)
-				a.vx *= factor
-				a.vy *= factor
-
-				if math.Sqrt(a.vx*a.vx+a.vy*a.vy) < stopThreshold {
-					a.vx = 0
-					a.vy = 0
-				}
+			vx, vy := a.applyDecay(dt)
+			if vx != 0 || vy != 0 {
+				moveMouse(vx*dt, vy*dt)
 			}
-			a.mu.Unlock()
 		}
 	}
+}
+
+// applyDecay は慣性速度に指数減衰を適用し、適用前の速度を返す。
+func (a *App) applyDecay(dt float64) (vx, vy float64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	vx, vy = a.vx, a.vy
+	if vx == 0 && vy == 0 {
+		return 0, 0
+	}
+
+	// 指数減衰（常に 0 < factor < 1）
+	factor := math.Exp(-decayRate * dt)
+	a.vx *= factor
+	a.vy *= factor
+
+	if math.Sqrt(a.vx*a.vx+a.vy*a.vy) < stopThreshold {
+		a.vx = 0
+		a.vy = 0
+	}
+
+	return vx, vy
 }
 
 // onTouchFrame はマルチタッチコールバックから呼ばれる。
 // タッチ中はカーソル履歴を記録し、リリース時に直近2点から速度を算出する。
 func (a *App) onTouchFrame(isTouched bool, timestamp float64) {
+	// cgo 呼び出し（getMouseLocation）を mutex 外で実行
+	var x, y float64
+	var ok bool
+	if isTouched {
+		x, y, ok = getMouseLocation()
+		if !ok {
+			return
+		}
+	}
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	if isTouched {
-		x, y := getMouseLocation()
-		if a.histLen < 2 {
-			a.history[a.histLen] = cursorRecord{x, y, timestamp}
-			a.histLen++
-		} else {
-			a.history[0] = a.history[1]
-			a.history[1] = cursorRecord{x, y, timestamp}
-		}
+		a.recordCursor(x, y, timestamp)
 		a.vx = 0
 		a.vy = 0
-	} else if a.isTouched {
-		if a.histLen >= 2 {
-			s := a.history[0]
-			e := a.history[1]
-			dt := e.timestamp - s.timestamp
-			if dt >= minTimeDelta {
-				a.vx = (e.x - s.x) / dt
-				a.vy = (e.y - s.y) / dt
-			}
-		}
+	} else if a.isTouched { // タッチ → 非タッチへの遷移（リリースエッジ）で速度を算出
+		a.vx, a.vy = a.calcReleaseVelocity()
 		a.histLen = 0
 	}
 
 	a.isTouched = isTouched
+}
+
+// recordCursor はカーソル位置を履歴に追加する（直近2点を保持）。
+// mu をロックした状態で呼ぶこと。
+func (a *App) recordCursor(x, y, timestamp float64) {
+	if a.histLen < 2 {
+		a.history[a.histLen] = cursorRecord{x, y, timestamp}
+		a.histLen++
+	} else {
+		a.history[0] = a.history[1]
+		a.history[1] = cursorRecord{x, y, timestamp}
+	}
+}
+
+// calcReleaseVelocity は履歴の直近2点からリリース時の速度を算出する。
+// mu をロックした状態で呼ぶこと。
+func (a *App) calcReleaseVelocity() (vx, vy float64) {
+	if a.histLen < 2 {
+		return 0, 0
+	}
+	prev, curr := a.history[0], a.history[1]
+	dt := curr.timestamp - prev.timestamp
+	if dt < minTimeDelta {
+		return 0, 0
+	}
+	return (curr.x - prev.x) / dt, (curr.y - prev.y) / dt
 }
