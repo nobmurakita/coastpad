@@ -64,6 +64,10 @@ type App struct {
 	// ドラッグ中に指を離すと OS がマウスアップを発行するが、これを EventTap で傍受・保留し、
 	// 代わりに合成 mouseDragged イベントを送り続けてドラッグセッションを延長する。
 	// コースト完了時に保留中のマウスアップを解放してドラッグセッションを終了する。
+	//
+	// ドラッグ追従: コースト中に再タッチするとドラッグ追従モードに移行する。
+	// pendingMouseUp を保持したまま、カーソル移動を合成 mouseDragged に変換して
+	// ウィンドウを追従させる。リリース時に速度があればドラッグ慣性を再開する。
 	isLeftButtonDown bool         // マウスダウン中か（EventTap で追跡）
 	isDragCoasting   bool         // ドラッグ慣性中か
 	coastX, coastY   float64      // コースト中のカーソル位置追跡
@@ -245,7 +249,13 @@ func (a *App) applyDecay(dt float64) {
 
 // onTouchFrame はマルチタッチコールバックから呼ばれる。
 // タッチ中はカーソル履歴を記録し、リリース時に直近2点から速度を算出する。
-func (a *App) onTouchFrame(isTouched bool, timestamp float64) {
+//
+// ドラッグ追従: コースト中に再タッチすると慣性を停止してドラッグ追従モードへ移行する。
+// 合成 mouseDragged でウィンドウを追従させ、リリース時に速度があれば
+// ドラッグ慣性を再開する。
+func (a *App) onTouchFrame(fingerCount int, timestamp float64) {
+	isTouched := fingerCount > 0
+
 	// cgo 呼び出し（getMouseLocation）を mutex 外で実行
 	x, y, ok := getMouseLocation()
 	if !ok {
@@ -256,21 +266,43 @@ func (a *App) onTouchFrame(isTouched bool, timestamp float64) {
 	var pending C.CGEventRef
 	var warpX, warpY float64
 	var needWarp bool
+	var syncX, syncY float64
+	var syncDx, syncDy int
+	var needDragSync bool
+	var releaseX, releaseY float64
+	var needDragEnd bool
 
 	if isTouched {
 		if a.isDragCoasting {
-			// コースト中に再タッチ → 速度を停止するがドラッグセッションは維持する。
-			// pendingMouseUp を保持することで、ユーザーの再ドラッグが同一セッション内で
-			// シームレスに継続する。次回リリース時に改めてコースト or 解放を判定する。
-			// 実カーソルをコースト位置に同期し、再ドラッグ時の位置不連続を防ぐ。
+			// コースト中に再タッチ → 慣性を停止しドラッグ追従モードへ移行する。
+			// pendingMouseUp を保持してドラッグセッションを維持する。
+			// カーソルをコースト位置にワープし、次フレームのデルタ基準にする。
 			warpX = a.coastX
 			warpY = a.coastY
 			needWarp = true
 			a.isDragCoasting = false
 			a.accumX = 0
 			a.accumY = 0
+			a.recordCursor(warpX, warpY, timestamp)
+		} else {
+			// ドラッグ追従: pendingMouseUp 保留中は合成ドラッグを送り
+			// ウィンドウを追従させる。
+			if a.pendingMouseUp != 0 && a.isTouched && a.histLen > 0 {
+				last := a.history[a.histLen-1]
+				a.accumX += x - last.x
+				a.accumY += y - last.y
+				syncDx = int(a.accumX)
+				syncDy = int(a.accumY)
+				a.accumX -= float64(syncDx)
+				a.accumY -= float64(syncDy)
+				if syncDx != 0 || syncDy != 0 {
+					needDragSync = true
+					syncX = x
+					syncY = y
+				}
+			}
+			a.recordCursor(x, y, timestamp)
 		}
-		a.recordCursor(x, y, timestamp)
 		a.vx = 0
 		a.vy = 0
 	} else if a.isTouched {
@@ -286,7 +318,13 @@ func (a *App) onTouchFrame(isTouched bool, timestamp float64) {
 			a.accumY = 0
 			a.isDragCoasting = true
 		} else if a.pendingMouseUp != 0 {
-			// 速度なし、保留マウスアップがあれば即解放
+			// 速度なし、保留マウスアップがあれば現在位置で解放する。
+			// releasePendingMouseUp（位置修正なし）だとイベントの元のキャプチャ位置
+			// （最初のドラッグリリース時）でウィンドウが飛ぶため、
+			// releasePendingMouseUpAt で現在位置に上書きする。
+			releaseX = x
+			releaseY = y
+			needDragEnd = true
 			pending = a.resetCoasting()
 		}
 	}
@@ -296,6 +334,15 @@ func (a *App) onTouchFrame(isTouched bool, timestamp float64) {
 
 	if needWarp {
 		syncCursorViaDrag(warpX, warpY)
+	}
+	if needDragSync {
+		postSyntheticDrag(syncX, syncY, syncDx, syncDy)
+	}
+	if needDragEnd {
+		releasePendingMouseUpAt(pending, releaseX, releaseY)
+		pending = 0
+		warpCursor(releaseX, releaseY)
+		reassociateMouse()
 	}
 	releasePendingMouseUp(pending)
 }
@@ -332,13 +379,27 @@ func (a *App) calcReleaseVelocity() (vx, vy float64) {
 func (a *App) onMouseDown() {
 	a.mu.Lock()
 	var pending C.CGEventRef
+	var discard bool
 	if a.isDragCoasting {
 		pending = a.resetCoasting()
+	} else if a.pendingMouseUp != 0 {
+		// ドラッグ追従中に新しい mouseDown が発生（3本指ドラッグ再開等）。
+		// 保留中の古い mouseUp は Post せずに破棄する。
+		// Post すると新しいドラッグセッションを壊す可能性がある。
+		pending = a.pendingMouseUp
+		a.pendingMouseUp = 0
+		a.accumX = 0
+		a.accumY = 0
+		discard = true
 	}
 	a.isLeftButtonDown = true
 	a.mu.Unlock()
 
-	releasePendingMouseUp(pending)
+	if discard {
+		discardEvent(pending)
+	} else {
+		releasePendingMouseUp(pending)
+	}
 }
 
 // handleMouseUp は EventTap からのマウスアップを処理する。

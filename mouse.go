@@ -134,6 +134,31 @@ func moveMouse(dx, dy float64) {
 	setMouseLocation(x+dx, y+dy)
 }
 
+// postSyntheticDrag はカーソル追従用の合成 mouseDragged イベントを発行する。
+// OS が mouseUp 後の再タッチを mouseMoved として送る状況で、
+// ドラッグセッション維持中にウィンドウを追従させるために使う。
+func postSyntheticDrag(x, y float64, dx, dy int) {
+	point := C.CGPointMake(C.CGFloat(x), C.CGFloat(y))
+	event := C.CGEventCreateMouseEvent(0, C.kCGEventLeftMouseDragged, point, C.kCGMouseButtonLeft)
+	if event == 0 {
+		return
+	}
+	defer C.CFRelease(C.CFTypeRef(event))
+	C.CGEventSetIntegerValueField(event, C.kCGMouseEventDeltaX, C.int64_t(dx))
+	C.CGEventSetIntegerValueField(event, C.kCGMouseEventDeltaY, C.int64_t(dy))
+	C.CGEventSetIntegerValueField(event, C.kCGMouseEventClickState, 1)
+	C.CGEventPost(C.kCGHIDEventTap, event)
+}
+
+// discardEvent はイベントを Post せずに CFRelease のみ行う。
+// 新しい mouseDown の直前に古い mouseUp を Post するとセッションが壊れるため、
+// 不要になったイベントはこの関数で破棄する。
+func discardEvent(event C.CGEventRef) {
+	if event != 0 {
+		C.CFRelease(C.CFTypeRef(event))
+	}
+}
+
 // dragPoster はドラッグ慣性用の合成 mouseDragged イベントを管理する。
 // CGEventSource を保持し、HID レベルのボタン状態を正しく反映する。
 type dragPoster struct {

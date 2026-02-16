@@ -60,7 +60,7 @@ func (td *TouchDevices) Close() {
 }
 
 // goTouchCallback は bridge_touch_callback (C) から呼ばれる cgo export 関数。
-// タッチ中の指があるかを判定し、結果を App.onTouchFrame に渡す。
+// タッチ中の指の本数を App.onTouchFrame に渡す。
 //
 //export goTouchCallback
 func goTouchCallback(device MTDeviceRef, data *C.Finger, dataNum C.int, timestamp C.double, frame C.int) {
@@ -69,7 +69,7 @@ func goTouchCallback(device MTDeviceRef, data *C.Finger, dataNum C.int, timestam
 		return
 	}
 	n := countActiveFingers(data, int(dataNum))
-	app.onTouchFrame(n > 0, float64(timestamp))
+	app.onTouchFrame(n, float64(timestamp))
 }
 
 const touchStateTouching = 4 // タッチ中の state 値
