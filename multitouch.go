@@ -68,17 +68,19 @@ func goTouchCallback(device MTDeviceRef, data *C.Finger, dataNum C.int, timestam
 	if app == nil {
 		return
 	}
-	app.onTouchFrame(hasActiveFinger(data, int(dataNum)), float64(timestamp))
+	n := countActiveFingers(data, int(dataNum))
+	app.onTouchFrame(n > 0, float64(timestamp))
 }
 
 const touchStateTouching = 4 // タッチ中の state 値
 
-// hasActiveFinger はタッチ中（state == 4）の指が1本以上あるかを返す。
-func hasActiveFinger(data *C.Finger, count int) bool {
+// countActiveFingers はタッチ中（state == 4）の指の本数を返す。
+func countActiveFingers(data *C.Finger, count int) int {
+	n := 0
 	for _, f := range unsafe.Slice(data, count) {
 		if int(f.state) == touchStateTouching {
-			return true
+			n++
 		}
 	}
-	return false
+	return n
 }
