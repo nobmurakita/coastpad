@@ -8,6 +8,8 @@
 // タッチの状態遷移:
 //   0:NotTracking → 1:StartInRange → 2:HoverInRange → 3:MakeTouch
 //   → 4:Touching → 5:BreakTouch → 6:LingerInRange → 7:OutOfRange
+//
+// Go 側の定数: multitouch.go の touchStateTouching
 
 // 2D 座標
 typedef struct {

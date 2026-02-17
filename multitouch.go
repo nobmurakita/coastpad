@@ -72,9 +72,10 @@ func goTouchCallback(device MTDeviceRef, data *C.Finger, dataNum C.int, timestam
 	app.onTouchFrame(n, float64(timestamp))
 }
 
-const touchStateTouching = 4 // タッチ中の state 値
+// タッチ中の state 値（multitouch.h のタッチ状態遷移を参照）
+const touchStateTouching = 4
 
-// countActiveFingers はタッチ中（state == 4）の指の本数を返す。
+// countActiveFingers はタッチ中（state == touchStateTouching）の指の本数を返す。
 func countActiveFingers(data *C.Finger, count int) int {
 	n := 0
 	for _, f := range unsafe.Slice(data, count) {
