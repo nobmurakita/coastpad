@@ -176,6 +176,15 @@ func discardEvent(event C.CGEventRef) {
 	}
 }
 
+// releasePendingMouseUp は保留中のマウスアップを発行・解放する。
+// mutex 外で呼ぶこと。
+func releasePendingMouseUp(event C.CGEventRef) {
+	if event != 0 {
+		C.CGEventPost(C.kCGHIDEventTap, event)
+		C.CFRelease(C.CFTypeRef(event))
+	}
+}
+
 // --- ドラッグ慣性用イベントソース ---
 
 // dragPoster はドラッグ慣性用の合成 mouseDragged イベントを管理する。
