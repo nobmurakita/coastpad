@@ -66,6 +66,16 @@ func (a *App) startEventTap() error {
 	return nil
 }
 
+// reEnableEventTap はタイムアウトで無効化された EventTap を再有効化する。
+func (a *App) reEnableEventTap() {
+	a.mu.Lock()
+	tap := a.eventTapRef
+	a.mu.Unlock()
+	if tap != 0 {
+		C.CGEventTapEnable(tap, C.bool(true))
+	}
+}
+
 // stopEventTap は EventTap の RunLoop を停止し、リソースを解放する。
 // RunLoop goroutine の終了を待ってから tap を解放する。
 func (a *App) stopEventTap() {
@@ -107,12 +117,7 @@ func goEventTapCallback(proxy C.CGEventTapProxy, eventType C.CGEventType,
 			return 0 // nil を返すとイベントが消費される
 		}
 	case C.kCGEventTapDisabledByTimeout:
-		app.mu.Lock()
-		tap := app.eventTapRef
-		app.mu.Unlock()
-		if tap != 0 {
-			C.CGEventTapEnable(tap, C.bool(true))
-		}
+		app.reEnableEventTap()
 	}
 
 	return event

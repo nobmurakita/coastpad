@@ -30,6 +30,7 @@ static inline void getScreenBounds(CGFloat *outMinX, CGFloat *outMinY,
 		*outMinX = 0; *outMinY = 0; *outMaxX = 1920; *outMaxY = 1080;
 		return;
 	}
+	// 最大16ディスプレイをサポート（macOS の実用上十分な上限）
 	CGDirectDisplayID displays[16];
 	if (count > 16) count = 16;
 	CGGetActiveDisplayList(count, displays, &count);
@@ -49,6 +50,8 @@ import (
 	"fmt"
 	"os"
 )
+
+// --- 基本カーソル操作 ---
 
 // screenBounds はすべてのディスプレイの結合バウンディングボックスを返す。
 func screenBounds() (minX, minY, maxX, maxY float64) {
@@ -81,10 +84,23 @@ func setMouseLocation(x, y float64) {
 	C.CGEventPost(C.kCGHIDEventTap, event)
 }
 
+// moveMouse はカーソルを相対移動する。
+// 慣性移動中（ユーザーが指を離している間）にのみ呼ばれることを前提としている。
+// getMouseLocation と setMouseLocation の間にユーザーがカーソルを動かすと
+// ユーザーの移動が上書きされる可能性がある（CoreGraphics に相対移動 API がないための制約）。
+// カーソル位置の取得に失敗した場合は何もしない。
+func moveMouse(dx, dy float64) {
+	x, y, ok := getMouseLocation()
+	if !ok {
+		return
+	}
+	setMouseLocation(x+dx, y+dy)
+}
+
 // warpCursor はイベントを発行せずにカーソル位置を移動する。
 // 入力抑制が約0.25秒発生するため、直後のユーザー操作が不要な場面でのみ使うこと。
 // CGWarpMouseCursorPosition はマウスとカーソルの関連付けを一時的に解除するため、
-// 使用後は reassociateMouse を呼ぶこと。
+// 使用後は reassociateMouse を呼ぶこと（endDragSession は両方を行う）。
 func warpCursor(x, y float64) {
 	C.warpCursorPosition(C.CGFloat(x), C.CGFloat(y))
 }
@@ -93,6 +109,19 @@ func warpCursor(x, y float64) {
 // CGWarpMouseCursorPosition で解除された関連付けを戻す。
 func reassociateMouse() {
 	C.associateMouseCursor()
+}
+
+// --- イベント操作 ---
+
+// endDragSession は保留中のマウスアップを最終位置に修正して発行し、
+// カーソルをワープして関連付けを復元する。
+// mouseUp の発行をワープより先に行うのは、ワープが先だとドラッグセッション中に
+// カーソルジャンプが発生し、ウィンドウが二重に移動してしまうため。
+// mutex 外で呼ぶこと。
+func endDragSession(pending C.CGEventRef, x, y float64) {
+	releasePendingMouseUpAt(pending, x, y)
+	warpCursor(x, y)
+	reassociateMouse()
 }
 
 // releasePendingMouseUpAt は保留中のマウスアップの位置を更新してから発行・解放する。
@@ -122,18 +151,6 @@ func syncCursorViaDrag(x, y float64) {
 	C.CGEventPost(C.kCGHIDEventTap, event)
 }
 
-// moveMouse はカーソルを相対移動する。
-// getMouseLocation と setMouseLocation の間にユーザーがカーソルを動かすと
-// ユーザーの移動が上書きされる可能性がある（CoreGraphics に相対移動 API がないための制約）。
-// カーソル位置の取得に失敗した場合は何もしない。
-func moveMouse(dx, dy float64) {
-	x, y, ok := getMouseLocation()
-	if !ok {
-		return
-	}
-	setMouseLocation(x+dx, y+dy)
-}
-
 // postSyntheticDrag はカーソル追従用の合成 mouseDragged イベントを発行する。
 // OS が mouseUp 後の再タッチを mouseMoved として送る状況で、
 // ドラッグセッション維持中にウィンドウを追従させるために使う。
@@ -159,6 +176,8 @@ func discardEvent(event C.CGEventRef) {
 	}
 }
 
+// --- ドラッグ慣性用イベントソース ---
+
 // dragPoster はドラッグ慣性用の合成 mouseDragged イベントを管理する。
 // CGEventSource を保持し、HID レベルのボタン状態を正しく反映する。
 type dragPoster struct {
@@ -182,6 +201,8 @@ func (dp *dragPoster) close() {
 
 // post は指定座標に kCGEventLeftMouseDragged イベントを発行する。
 // dx, dy は整数 delta。ウィンドウマネージャはこの delta でウィンドウを移動する。
+// CGEventCreateMouseEvent は source に nil（0）を受け付けるため、
+// CGEventSourceCreate が失敗しても動作する。
 func (dp *dragPoster) post(x, y float64, dx, dy int) {
 	point := C.CGPointMake(C.CGFloat(x), C.CGFloat(y))
 	event := C.CGEventCreateMouseEvent(dp.source, C.kCGEventLeftMouseDragged, point, C.kCGMouseButtonLeft)
