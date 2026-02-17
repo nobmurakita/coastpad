@@ -73,10 +73,11 @@ type App struct {
 	// ドラッグ追従モードへ移行する。pendingMouseUp を保持したまま、カーソル移動を
 	// 合成 mouseDragged に変換してウィンドウを追従させる。
 	// 1本指で移動が検出された場合はドラッグを終了する。
-	isLeftButtonDown    bool         // マウスダウン中か（EventTap で追跡）
-	isDragCoasting      bool         // ドラッグ慣性中か
-	isDragFollowing     bool         // ドラッグ追従中か（コースト後に複数指で再タッチ）
-	isDragPendingDecision bool       // コースト後の1本指タッチで判定保留中か
+	isLeftButtonDown      bool         // マウスダウン中か（EventTap で追跡）
+	isDragCoasting        bool         // ドラッグ慣性中か
+	isDragFollowing       bool         // ドラッグ追従中か（コースト後に複数指で再タッチ）
+	isDragPendingDecision bool         // コースト後の1本指タッチで判定保留中か
+	wasMultiFingerDrag    bool         // 現在のドラッグが複数指で開始されたか
 	coastX, coastY   float64      // コースト中のカーソル位置追跡
 	accumX, accumY   float64      // ドラッグイベント用の端数デルタ蓄積
 	pendingMouseUp   C.CGEventRef // 保留中のマウスアップ（CFRetain 済み）
@@ -325,6 +326,11 @@ func (a *App) prepareTouchFrame(fingerCount int, x, y, timestamp float64) touchA
 	isTouched := fingerCount > 0
 
 	if isTouched {
+		// 複数指ドラッグを追跡する（1本指減少時の終了判定に使用）
+		if a.isLeftButtonDown && fingerCount > 1 {
+			a.wasMultiFingerDrag = true
+		}
+
 		if a.isDragCoasting {
 			// コースト中に再タッチ → 慣性を停止する。
 			a.isDragCoasting = false
@@ -375,6 +381,17 @@ func (a *App) prepareTouchFrame(fingerCount int, x, y, timestamp float64) touchA
 				// 判定中（1本指、移動なし）→ カーソル位置を記録のみ
 				a.recordCursor(x, y, timestamp)
 			}
+		} else if a.wasMultiFingerDrag && fingerCount == 1 && a.pendingMouseUp != 0 {
+			// 複数指ドラッグから1本指に減少 → ドラッグを終了する（macOS 標準動作）。
+			action.releaseX = x
+			action.releaseY = y
+			action.needMouseUpOnly = true
+			action.pending = a.pendingMouseUp
+			a.pendingMouseUp = 0
+			a.isDragFollowing = false
+			a.isLeftButtonDown = false
+			a.wasMultiFingerDrag = false
+			a.recordCursor(x, y, timestamp)
 		} else {
 			// ドラッグ追従中は合成ドラッグを送りウィンドウを追従させる。
 			if a.isDragFollowing && a.isTouched && a.histLen > 0 {
@@ -494,6 +511,7 @@ func (a *App) onMouseDown() {
 		a.pendingMouseUp = 0
 		a.isDragFollowing = false
 		a.isDragPendingDecision = false
+		a.wasMultiFingerDrag = false
 		a.accumX = 0
 		a.accumY = 0
 		discard = true
@@ -540,6 +558,7 @@ func (a *App) resetCoasting() C.CGEventRef {
 	a.isDragCoasting = false
 	a.isDragFollowing = false
 	a.isDragPendingDecision = false
+	a.wasMultiFingerDrag = false
 	a.vx = 0
 	a.vy = 0
 	a.accumX = 0
