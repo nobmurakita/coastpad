@@ -44,6 +44,10 @@ const (
 	stopThreshold = 10.0                  // 停止閾値 (px/sec)
 	loopInterval  = 16 * time.Millisecond // ~60Hz
 	minTimeDelta  = 1e-9                  // ゼロ除算防御
+
+	// ドラッグ追従判定の移動閾値（px）。コースト中に1本指で再タッチした後、
+	// この閾値を超える移動があればドラッグを終了する。
+	dragFollowMovementThreshold = 3.0
 )
 
 // cursorRecord はある時点のカーソル位置を保持する。
@@ -65,11 +69,14 @@ type App struct {
 	// 代わりに合成 mouseDragged イベントを送り続けてドラッグセッションを延長する。
 	// コースト完了時に保留中のマウスアップを解放してドラッグセッションを終了する。
 	//
-	// ドラッグ追従: コースト中に再タッチするとドラッグ追従モードに移行する。
-	// pendingMouseUp を保持したまま、カーソル移動を合成 mouseDragged に変換して
-	// ウィンドウを追従させる。リリース時に速度があればドラッグ慣性を再開する。
-	isLeftButtonDown bool         // マウスダウン中か（EventTap で追跡）
-	isDragCoasting   bool         // ドラッグ慣性中か
+	// ドラッグ追従: コースト中に再タッチすると、移動前に複数指が検出された場合のみ
+	// ドラッグ追従モードへ移行する。pendingMouseUp を保持したまま、カーソル移動を
+	// 合成 mouseDragged に変換してウィンドウを追従させる。
+	// 1本指で移動が検出された場合はドラッグを終了する。
+	isLeftButtonDown    bool         // マウスダウン中か（EventTap で追跡）
+	isDragCoasting      bool         // ドラッグ慣性中か
+	isDragFollowing     bool         // ドラッグ追従中か（コースト後に複数指で再タッチ）
+	isDragPendingDecision bool       // コースト後の1本指タッチで判定保留中か
 	coastX, coastY   float64      // コースト中のカーソル位置追跡
 	accumX, accumY   float64      // ドラッグイベント用の端数デルタ蓄積
 	pendingMouseUp   C.CGEventRef // 保留中のマウスアップ（CFRetain 済み）
@@ -281,19 +288,17 @@ func (a *App) applyDecay(dt float64) {
 // onTouchFrame はマルチタッチコールバックから呼ばれる。
 // タッチ中はカーソル履歴を記録し、リリース時に直近2点から速度を算出する。
 //
-// ドラッグ追従: コースト中に再タッチすると慣性を停止してドラッグ追従モードへ移行する。
+// ドラッグ追従: コースト中に複数指で再タッチするとドラッグ追従モードへ移行する。
 // 合成 mouseDragged でウィンドウを追従させ、リリース時に速度があれば
-// ドラッグ慣性を再開する。
+// ドラッグ慣性を再開する。1本指のみの場合はドラッグを終了する。
 func (a *App) onTouchFrame(fingerCount int, timestamp float64) {
-	isTouched := fingerCount > 0
-
 	// cgo 呼び出し（getMouseLocation）を mutex 外で実行
 	x, y, ok := getMouseLocation()
 	if !ok {
 		return
 	}
 
-	action := a.prepareTouchFrame(isTouched, x, y, timestamp)
+	action := a.prepareTouchFrame(fingerCount, x, y, timestamp)
 	a.executeTouchAction(action)
 }
 
@@ -306,33 +311,73 @@ type touchAction struct {
 	syncDx, syncDy     int          // ドラッグ追従の整数デルタ
 	needDragSync       bool         // 合成ドラッグイベントが必要か
 	releaseX, releaseY float64      // ドラッグ終了時の位置
-	needDragEnd        bool         // ドラッグセッションの終了が必要か
+	needDragEnd        bool         // ドラッグセッションの終了が必要か（ワープ付き）
+	needMouseUpOnly    bool         // mouseUp のみ発行（カーソルワープなし）
 	pending            C.CGEventRef // 解放するマウスアップ
 }
 
 // prepareTouchFrame は mutex 内でタッチフレームの状態を計算する。
-func (a *App) prepareTouchFrame(isTouched bool, x, y, timestamp float64) touchAction {
+func (a *App) prepareTouchFrame(fingerCount int, x, y, timestamp float64) touchAction {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	var action touchAction
+	isTouched := fingerCount > 0
 
 	if isTouched {
 		if a.isDragCoasting {
-			// コースト中に再タッチ → 慣性を停止しドラッグ追従モードへ移行する。
-			// pendingMouseUp を保持してドラッグセッションを維持する。
-			// カーソルをコースト位置にワープし、次フレームのデルタ基準にする。
-			action.warpX = a.coastX
-			action.warpY = a.coastY
-			action.needWarp = true
+			// コースト中に再タッチ → 慣性を停止する。
 			a.isDragCoasting = false
 			a.accumX = 0
 			a.accumY = 0
-			a.recordCursor(action.warpX, action.warpY, timestamp)
+			if fingerCount > 1 {
+				// 複数指 → 即座にドラッグ追従モードへ。
+				// カーソルをコースト位置にワープし、次フレームのデルタ基準にする。
+				action.warpX = a.coastX
+				action.warpY = a.coastY
+				action.needWarp = true
+				a.isDragFollowing = true
+				a.recordCursor(a.coastX, a.coastY, timestamp)
+			} else {
+				// 1本指 → ドラッグ判定を保留する。カーソルはワープしない。
+				// 後続フレームで移動を検出したらドラッグを終了し、
+				// 移動前に複数指になったら追従モードへ移行する。
+				a.isDragFollowing = false
+				a.isDragPendingDecision = true
+				a.recordCursor(x, y, timestamp)
+			}
+		} else if a.isDragPendingDecision {
+			// ドラッグ判定保留中: 移動か複数指かで判定する。
+			hasMoved := math.Abs(x-a.coastX) > dragFollowMovementThreshold ||
+				math.Abs(y-a.coastY) > dragFollowMovementThreshold
+			if !hasMoved && fingerCount > 1 {
+				// 移動前に複数指検出 → ドラッグ追従モードへ
+				action.warpX = a.coastX
+				action.warpY = a.coastY
+				action.needWarp = true
+				a.isDragFollowing = true
+				a.isDragPendingDecision = false
+				a.accumX = 0
+				a.accumY = 0
+				a.histLen = 0
+				a.recordCursor(a.coastX, a.coastY, timestamp)
+			} else if hasMoved {
+				// 移動検出 → コースト位置で mouseUp を発行しドラッグを終了する
+				action.releaseX = a.coastX
+				action.releaseY = a.coastY
+				action.needMouseUpOnly = true
+				action.pending = a.pendingMouseUp
+				a.pendingMouseUp = 0
+				a.isLeftButtonDown = false
+				a.isDragPendingDecision = false
+				a.recordCursor(x, y, timestamp)
+			} else {
+				// 判定中（1本指、移動なし）→ カーソル位置を記録のみ
+				a.recordCursor(x, y, timestamp)
+			}
 		} else {
-			// ドラッグ追従: pendingMouseUp 保留中は合成ドラッグを送り
-			// ウィンドウを追従させる。
-			if a.pendingMouseUp != 0 && a.isTouched && a.histLen > 0 {
+			// ドラッグ追従中は合成ドラッグを送りウィンドウを追従させる。
+			if a.isDragFollowing && a.isTouched && a.histLen > 0 {
 				last := a.history[a.histLen-1]
 				action.syncDx, action.syncDy = a.extractIntegerDelta(x-last.x, y-last.y)
 				if action.syncDx != 0 || action.syncDy != 0 {
@@ -350,13 +395,26 @@ func (a *App) prepareTouchFrame(isTouched bool, x, y, timestamp float64) touchAc
 		a.vx, a.vy = a.calcReleaseVelocity()
 		a.histLen = 0
 
-		if a.isLeftButtonDown && (a.vx != 0 || a.vy != 0) {
+		if a.isDragPendingDecision {
+			// コースト後の判定保留中にリリース（1本指のみだった）。
+			// コースト位置で mouseUp を発行してドラッグを終了する。
+			// カーソルはユーザーの現在位置にあるのでワープしない。
+			// 速度があれば通常の慣性として適用される。
+			action.releaseX = a.coastX
+			action.releaseY = a.coastY
+			action.needMouseUpOnly = true
+			action.pending = a.pendingMouseUp
+			a.pendingMouseUp = 0
+			a.isLeftButtonDown = false
+			a.isDragPendingDecision = false
+		} else if a.isLeftButtonDown && (a.vx != 0 || a.vy != 0) {
 			// ドラッグ中にリリース → ドラッグ慣性を開始
 			a.coastX = x
 			a.coastY = y
 			a.accumX = 0
 			a.accumY = 0
 			a.isDragCoasting = true
+			a.isDragFollowing = false
 			a.cacheScreenBounds()
 		} else if a.pendingMouseUp != 0 {
 			// 速度なし、保留マウスアップがあれば現在位置で解放する。
@@ -384,6 +442,10 @@ func (a *App) executeTouchAction(action touchAction) {
 	}
 	if action.needDragEnd {
 		endDragSession(action.pending, action.releaseX, action.releaseY)
+		action.pending = 0
+	}
+	if action.needMouseUpOnly {
+		releasePendingMouseUpAt(action.pending, action.releaseX, action.releaseY)
 		action.pending = 0
 	}
 	releasePendingMouseUp(action.pending)
@@ -430,6 +492,8 @@ func (a *App) onMouseDown() {
 		// Post すると新しいドラッグセッションを壊す可能性がある。
 		pending = a.pendingMouseUp
 		a.pendingMouseUp = 0
+		a.isDragFollowing = false
+		a.isDragPendingDecision = false
 		a.accumX = 0
 		a.accumY = 0
 		discard = true
@@ -474,6 +538,8 @@ func (a *App) handleMouseUp(event C.CGEventRef) (suppressed bool) {
 // mu をロックした状態で呼ぶこと。
 func (a *App) resetCoasting() C.CGEventRef {
 	a.isDragCoasting = false
+	a.isDragFollowing = false
+	a.isDragPendingDecision = false
 	a.vx = 0
 	a.vy = 0
 	a.accumX = 0
