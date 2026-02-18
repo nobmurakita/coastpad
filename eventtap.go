@@ -13,6 +13,13 @@ import (
 	"unsafe"
 )
 
+// machPortRef は CoreFoundation の MachPort 参照型。
+// CGo 型を eventtap.go に閉じ込め、他ファイルへの CGo 依存を防ぐ。
+type machPortRef = C.CFMachPortRef
+
+// runLoopRef は CoreFoundation の RunLoop 参照型。
+type runLoopRef = C.CFRunLoopRef
+
 // startEventTap は CGEventTap を作成し、専用スレッドで RunLoop を回す。
 func (a *App) startEventTap() error {
 	mask := C.CGEventMask((1 << C.kCGEventLeftMouseDown) | (1 << C.kCGEventLeftMouseUp))

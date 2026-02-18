@@ -2,10 +2,6 @@
 // MultitouchSupport コールバックから呼ばれるタッチ/リリースのフレーム処理。
 package main
 
-/*
-#include <CoreGraphics/CoreGraphics.h>
-*/
-import "C"
 import "math"
 
 // onTouchFrame はマルチタッチコールバックから呼ばれる。
@@ -36,7 +32,7 @@ type touchAction struct {
 	releaseX, releaseY float64      // ドラッグ終了時の位置
 	needDragEnd        bool         // ドラッグセッションの終了が必要か（ワープ付き）
 	needMouseUpOnly    bool         // mouseUp のみ発行（カーソルワープなし）
-	pending            C.CGEventRef // 解放するマウスアップ
+	pending            eventRef     // 解放するマウスアップ
 }
 
 // prepareTouchFrame は mutex 内でタッチフレームの状態を計算する。

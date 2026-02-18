@@ -11,6 +11,20 @@ import (
 	"os"
 )
 
+// eventRef は CoreGraphics イベントの参照型。
+// CGo 型を mouse.go に閉じ込め、他ファイルへの CGo 依存を防ぐ。
+type eventRef = C.CGEventRef
+
+// retainEvent はイベントの参照カウントを +1 する。
+func retainEvent(event eventRef) {
+	C.CFRetain(C.CFTypeRef(event))
+}
+
+// releaseEvent はイベントの参照カウントを -1 する。
+func releaseEvent(event eventRef) {
+	C.CFRelease(C.CFTypeRef(event))
+}
+
 // --- 基本カーソル操作 ---
 
 // getMouseLocation は現在のカーソル位置をスクリーン座標で返す。
@@ -118,15 +132,6 @@ func postSyntheticDrag(x, y float64, dx, dy int) {
 	C.CGEventSetIntegerValueField(event, C.kCGMouseEventDeltaY, C.int64_t(dy))
 	C.CGEventSetIntegerValueField(event, C.kCGMouseEventClickState, 1)
 	C.CGEventPost(C.kCGHIDEventTap, event)
-}
-
-// discardEvent はイベントを Post せずに CFRelease のみ行う。
-// 新しい mouseDown の直前に古い mouseUp を Post するとセッションが壊れるため、
-// 不要になったイベントはこの関数で破棄する。
-func discardEvent(event C.CGEventRef) {
-	if event != 0 {
-		C.CFRelease(C.CFTypeRef(event))
-	}
 }
 
 // releasePendingMouseUp は保留中のマウスアップを発行・解放する。

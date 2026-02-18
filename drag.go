@@ -2,15 +2,10 @@
 // CGEventTap コールバックから呼ばれるマウスボタンイベント処理。
 package main
 
-/*
-#include <CoreGraphics/CoreGraphics.h>
-*/
-import "C"
-
 // onMouseDown は EventTap からのマウスダウンで呼ばれる。
 func (a *App) onMouseDown() {
 	a.mu.Lock()
-	var pending C.CGEventRef
+	var pending eventRef
 	var discard bool
 	if a.dragPhase == dragPhaseCoasting {
 		pending = a.resetCoasting()
@@ -30,7 +25,7 @@ func (a *App) onMouseDown() {
 	a.mu.Unlock()
 
 	if discard {
-		discardEvent(pending)
+		releaseEvent(pending)
 	} else {
 		releasePendingMouseUp(pending)
 	}
@@ -41,17 +36,17 @@ func (a *App) onMouseDown() {
 //
 // ドラッグ慣性中: mouseUp を保留してドラッグセッションを維持する。
 // ドラッグ中かつタッチ中: onTouchFrame のリリース判定を待つため一時保留する。
-func (a *App) handleMouseUp(event C.CGEventRef) (suppressed bool) {
+func (a *App) handleMouseUp(event eventRef) (suppressed bool) {
 	a.mu.Lock()
 
 	if a.dragPhase == dragPhaseCoasting || (a.isLeftButtonDown && a.isTouched) {
-		C.CFRetain(C.CFTypeRef(event))
+		retainEvent(event)
 		old := a.pendingMouseUp
 		a.pendingMouseUp = event
 		a.mu.Unlock()
-		// CFRelease は mutex 外で実行する
+		// 解放は mutex 外で実行する
 		if old != 0 {
-			C.CFRelease(C.CFTypeRef(old))
+			releaseEvent(old)
 		}
 		return true
 	}
@@ -64,7 +59,7 @@ func (a *App) handleMouseUp(event C.CGEventRef) (suppressed bool) {
 // resetCoasting はコースト状態をリセットし、保留中のマウスアップイベントを返す。
 // 返されたイベントは呼び出し側が mutex 外で releasePendingMouseUp すること。
 // mu をロックした状態で呼ぶこと。
-func (a *App) resetCoasting() C.CGEventRef {
+func (a *App) resetCoasting() eventRef {
 	a.dragPhase = dragPhaseNone
 	a.wasMultiFingerDrag = false
 	a.vx = 0

@@ -2,10 +2,6 @@
 // ~60Hz ループの1フレーム分の慣性計算と実行。
 package main
 
-/*
-#include <CoreGraphics/CoreGraphics.h>
-*/
-import "C"
 import "math"
 
 // coastAction はコーストループの1フレームで実行するアクションを表す。
@@ -16,7 +12,7 @@ type coastAction struct {
 	dragDx, dragDy int          // ドラッグイベントの整数デルタ
 	isDragCoasting bool         // ドラッグ慣性フレームか
 	coastEnded     bool         // コーストが今フレームで終了したか
-	pending        C.CGEventRef // 終了時に解放するマウスアップ
+	pending        eventRef     // 終了時に解放するマウスアップ
 }
 
 // prepareCoastFrame は mutex 内でコーストの1フレーム分の状態を計算する。
