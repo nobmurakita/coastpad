@@ -3,8 +3,9 @@
 package main
 
 /*
-#cgo LDFLAGS: -framework CoreFoundation -F/System/Library/PrivateFrameworks -framework MultitouchSupport
+#cgo LDFLAGS: -framework CoreFoundation -framework IOKit -F/System/Library/PrivateFrameworks -framework MultitouchSupport
 #include "multitouch.h"
+#include <stdlib.h>
 */
 import "C"
 import (
@@ -70,6 +71,14 @@ func goTouchCallback(device MTDeviceRef, data *C.Finger, dataNum C.int, timestam
 	}
 	n := countActiveFingers(data, int(dataNum))
 	app.onTouchFrame(n, float64(timestamp))
+}
+
+// goIOKitDeviceChanged は bridge_iokit_callback (C) から呼ばれる cgo export 関数。
+// デバイスリストの変更を処理する（後のタスクで本実装に差し替え）。
+//
+//export goIOKitDeviceChanged
+func goIOKitDeviceChanged() {
+	// Task 3 で実装する
 }
 
 // タッチ中の state 値（multitouch.h のタッチ状態遷移を参照）
