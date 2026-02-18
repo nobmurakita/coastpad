@@ -182,6 +182,7 @@ func (dp *dragPoster) post(x, y float64, dx, dy int) {
 	C.CGEventSetIntegerValueField(event, C.kCGMouseEventDeltaY, C.int64_t(dy))
 	C.CGEventSetDoubleValueField(event, C.kCGMouseEventDeltaX, C.double(dx))
 	C.CGEventSetDoubleValueField(event, C.kCGMouseEventDeltaY, C.double(dy))
+
 	// ドラッグ中のボタン状態と圧力を設定
 	C.CGEventSetIntegerValueField(event, C.kCGMouseEventClickState, 1)
 	C.CGEventSetDoubleValueField(event, C.kCGMouseEventPressure, 1.0)
