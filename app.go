@@ -53,24 +53,25 @@ type App struct {
 	// ドラッグ追従モードへ移行する。pendingMouseUp を保持したまま、カーソル移動を
 	// mouseDragged に変換してウィンドウを追従させる。
 	// 1本指で移動が検出された場合はドラッグを終了する。
-	isLeftButtonDown   bool         // マウスダウン中か（EventTap で追跡）
-	dragPhase          dragPhase    // ドラッグ慣性の状態フェーズ
-	wasMultiFingerDrag bool         // 現在のドラッグが複数指で開始されたか
-	coastX, coastY     float64      // コースト中のカーソル位置追跡
-	accumX, accumY     float64      // ドラッグイベント用の端数デルタ蓄積
-	pendingMouseUp     eventRef     // 保留中のマウスアップ（CFRetain 済み）
+	isLeftButtonDown   bool      // マウスダウン中か（EventTap で追跡）
+	dragPhase          dragPhase // ドラッグ慣性の状態フェーズ
+	wasMultiFingerDrag bool      // 現在のドラッグが複数指で開始されたか
+	coastX, coastY     float64   // コースト中のカーソル位置追跡
+	accumX, accumY     float64   // ドラッグイベント用の端数デルタ蓄積
+	pendingMouseUp     eventRef  // 保留中のマウスアップ（CFRetain 済み）
 
 	// 画面バウンドキャッシュ（コースト開始時に取得、clampToScreen で使用）
 	screenMinX, screenMinY float64
 	screenMaxX, screenMaxY float64
 
-	eventTapRef     machPortRef  // タイムアウト再有効化用
-	eventTapRunLoop runLoopRef   // 停止時の CFRunLoopStop 用
-	eventTapDone    chan struct{}   // RunLoop goroutine の終了通知
+	eventTapRef     machPortRef   // タイムアウト再有効化用
+	eventTapRunLoop runLoopRef    // 停止時の CFRunLoopStop 用
+	eventTapDone    chan struct{} // RunLoop goroutine の終了通知
 
-	devices  *TouchDevices
-	stopOnce sync.Once
-	stop     chan struct{}
+	notifier     *DeviceNotifier
+	touchDevices *TouchDevices
+	stopOnce     sync.Once
+	stop         chan struct{}
 }
 
 // NewApp は App を初期化して返す。
@@ -80,16 +81,22 @@ func NewApp() *App {
 	}
 }
 
-// Open はタッチデバイスを検出し、コールバック・EventTap を登録する。
+// Open はタッチデバイスを検出し、コールバック・EventTap・デバイス通知を登録する。
 func (a *App) Open() error {
-	devices, err := OpenTouchDevices()
+	// IOKit デバイス変更通知の開始
+	notifier, err := StartDeviceNotifier()
 	if err != nil {
-		return fmt.Errorf("failed to open touch devices: %w", err)
+		return fmt.Errorf("failed to start device notifier: %w", err)
 	}
-	a.devices = devices
+	a.notifier = notifier
+
+	// タッチデバイスの初期検出とコールバック登録
+	a.touchDevices = NewTouchDevices()
+	a.touchDevices.RefreshDevices()
 
 	if err := a.startEventTap(); err != nil {
-		a.devices.Close()
+		a.notifier.Stop()
+		a.touchDevices.StopAll()
 		return fmt.Errorf("failed to start event tap: %w", err)
 	}
 	return nil
@@ -99,7 +106,8 @@ func (a *App) Open() error {
 func (a *App) Stop() {
 	a.stopOnce.Do(func() {
 		close(a.stop)
-		a.devices.Close()
+		a.notifier.Stop()
+		a.touchDevices.StopAll()
 		a.stopEventTap()
 
 		a.mu.Lock()
@@ -108,6 +116,14 @@ func (a *App) Stop() {
 		a.mu.Unlock()
 		releasePendingMouseUp(pending)
 	})
+}
+
+// onDeviceChanged は IOKit 通知から呼ばれ、デバイスリストを更新する。
+func (a *App) onDeviceChanged() {
+	if a.touchDevices == nil {
+		return
+	}
+	a.touchDevices.RefreshDevices()
 }
 
 // Run は慣性移動ループを実行する。Stop() が呼ばれるまでブロックする。

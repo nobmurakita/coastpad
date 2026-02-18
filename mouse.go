@@ -210,6 +210,6 @@ func screenBounds() (minX, minY, maxX, maxY float64) {
 		bounds = C.CGRectUnion(bounds, C.CGDisplayBounds(displays[i]))
 	}
 	return float64(bounds.origin.x), float64(bounds.origin.y),
-		float64(bounds.origin.x+bounds.size.width),
-		float64(bounds.origin.y+bounds.size.height)
+		float64(bounds.origin.x + bounds.size.width),
+		float64(bounds.origin.y + bounds.size.height)
 }
