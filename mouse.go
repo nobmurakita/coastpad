@@ -151,7 +151,7 @@ func syncCursorViaDrag(x, y float64) {
 	C.CGEventPost(C.kCGHIDEventTap, event)
 }
 
-// postSyntheticDrag はカーソル追従用の合成 mouseDragged イベントを発行する。
+// postSyntheticDrag はカーソル追従用の mouseDragged イベントを発行する。
 // OS が mouseUp 後の再タッチを mouseMoved として送る状況で、
 // ドラッグセッション維持中にウィンドウを追従させるために使う。
 func postSyntheticDrag(x, y float64, dx, dy int) {
@@ -187,7 +187,7 @@ func releasePendingMouseUp(event C.CGEventRef) {
 
 // --- ドラッグ慣性用イベントソース ---
 
-// dragPoster はドラッグ慣性用の合成 mouseDragged イベントを管理する。
+// dragPoster はドラッグ慣性用の mouseDragged イベントを管理する。
 // CGEventSource を保持し、HID レベルのボタン状態を正しく反映する。
 type dragPoster struct {
 	source C.CGEventSourceRef

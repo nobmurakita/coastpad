@@ -12,7 +12,7 @@ import "math"
 // タッチ中はカーソル履歴を記録し、リリース時に直近2点から速度を算出する。
 //
 // ドラッグ追従: コースト中に複数指で再タッチするとドラッグ追従モードへ移行する。
-// 合成 mouseDragged でウィンドウを追従させ、リリース時に速度があれば
+// mouseDragged でウィンドウを追従させ、リリース時に速度があれば
 // ドラッグ慣性を再開する。1本指のみの場合はドラッグを終了する。
 func (a *App) onTouchFrame(fingerCount int, timestamp float64) {
 	// cgo 呼び出し（getMouseLocation）を mutex 外で実行
@@ -30,9 +30,9 @@ func (a *App) onTouchFrame(fingerCount int, timestamp float64) {
 type touchAction struct {
 	warpX, warpY       float64      // ドラッグ追従開始時のワープ先
 	needWarp           bool         // カーソルワープが必要か
-	syncX, syncY       float64      // ドラッグ追従の合成イベント位置
+	syncX, syncY       float64      // ドラッグ追従のイベント位置
 	syncDx, syncDy     int          // ドラッグ追従の整数デルタ
-	needDragSync       bool         // 合成ドラッグイベントが必要か
+	needDragSync       bool         // ドラッグイベントの発行が必要か
 	releaseX, releaseY float64      // ドラッグ終了時の位置
 	needDragEnd        bool         // ドラッグセッションの終了が必要か（ワープ付き）
 	needMouseUpOnly    bool         // mouseUp のみ発行（カーソルワープなし）
@@ -141,7 +141,7 @@ func (a *App) handleTouchDuringPending(fingerCount int, x, y, timestamp float64)
 }
 
 // handleTouchDefault は通常のタッチ処理を行う。
-// 複数指→1本指減少によるドラッグ終了と、ドラッグ追従中の合成イベント送信を処理する。
+// 複数指→1本指減少によるドラッグ終了と、ドラッグ追従中のイベント発行を処理する。
 // mu をロックした状態で呼ぶこと。
 func (a *App) handleTouchDefault(fingerCount int, x, y, timestamp float64) touchAction {
 	var action touchAction
@@ -158,7 +158,7 @@ func (a *App) handleTouchDefault(fingerCount int, x, y, timestamp float64) touch
 		a.wasMultiFingerDrag = false
 		a.recordCursor(x, y, timestamp)
 	} else {
-		// ドラッグ追従中は合成ドラッグを送りウィンドウを追従させる。
+		// ドラッグ追従中は mouseDragged を送りウィンドウを追従させる。
 		if a.dragPhase == dragPhaseFollowing && a.isTouched && a.histLen > 0 {
 			last := a.history[a.histLen-1]
 			action.syncDx, action.syncDy = a.extractIntegerDelta(x-last.x, y-last.y)
