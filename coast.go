@@ -7,12 +7,12 @@ import "math"
 // coastAction はコーストループの1フレームで実行するアクションを表す。
 // prepareCoastFrame が mutex 内で準備し、executeCoastFrame が mutex 外で実行する。
 type coastAction struct {
-	moveDx, moveDy float64      // 通常の慣性移動量
-	dragX, dragY   float64      // ドラッグ慣性のカーソル位置
-	dragDx, dragDy int          // ドラッグイベントの整数デルタ
-	isDragCoasting bool         // ドラッグ慣性フレームか
-	coastEnded     bool         // コーストが今フレームで終了したか
-	pending        eventRef     // 終了時に解放するマウスアップ
+	moveDx, moveDy float64  // 通常の慣性移動量
+	dragX, dragY   float64  // ドラッグ慣性のカーソル位置
+	dragDx, dragDy int      // ドラッグイベントの整数デルタ
+	isDragCoasting bool     // ドラッグ慣性フレームか
+	coastEnded     bool     // コーストが今フレームで終了したか
+	pending        eventRef // 終了時に解放するマウスアップ
 }
 
 // prepareCoastFrame は mutex 内でコーストの1フレーム分の状態を計算する。
