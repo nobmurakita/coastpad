@@ -18,7 +18,7 @@ func (a *App) onTouchFrame(fingerCount int, timestamp float64) {
 	}
 
 	action := a.prepareTouchFrame(fingerCount, x, y, timestamp)
-	a.executeTouchAction(action)
+	a.executeTouchFrame(action)
 }
 
 // touchAction はタッチフレームで実行するアクションを表す。
@@ -232,8 +232,8 @@ func (a *App) releaseDefault(x, y float64) touchAction {
 	return action
 }
 
-// executeTouchAction はタッチアクションに基づき cgo 呼び出しを実行する。
-func (a *App) executeTouchAction(action touchAction) {
+// executeTouchFrame はタッチアクションに基づき cgo 呼び出しを実行する。
+func (a *App) executeTouchFrame(action touchAction) {
 	if action.needWarp {
 		syncCursorViaDrag(action.warpX, action.warpY)
 	}
