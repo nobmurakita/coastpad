@@ -10,6 +10,7 @@ package main
 import "C"
 import (
 	"fmt"
+	"runtime"
 	"sync"
 	"unsafe"
 )
@@ -33,19 +34,30 @@ type TouchDevices struct {
 }
 
 // OpenTouchDevices はデバイス監視を開始する。
-// 接続中のデバイスを検出してコールバックを登録する。
+// 接続中のデバイスを検出してコールバックを登録し、IOKit 通知で動的に追跡する。
 // デバイスが 0 台でもエラーにならない（後から接続されたデバイスを自動検出する）。
 func OpenTouchDevices() (*TouchDevices, error) {
 	td := &TouchDevices{
 		devs: make(map[uintptr]MTDeviceRef),
 	}
+
+	// 初期デバイスの検出とコールバック登録
 	changes := td.refreshDevices()
+
+	// IOKit 通知を開始（デバイスの動的検出）
+	if err := td.startIOKitNotifications(); err != nil {
+		td.stopAllDevices()
+		return nil, err
+	}
+
 	fmt.Printf("Touch devices: %d active\n", changes.active)
 	return td, nil
 }
 
-// Close はデバイス監視を停止し、リソースを解放する。
+// Close はデバイス監視と IOKit 通知を停止し、リソースを解放する。
 func (td *TouchDevices) Close() {
+	// IOKit 通知を先に停止（refreshDevices の新規呼び出しを防ぐ）
+	td.stopIOKitNotifications()
 	td.stopAllDevices()
 }
 
@@ -136,6 +148,67 @@ func (td *TouchDevices) stopAllDevices() {
 	if list != 0 {
 		C.CFRelease(C.CFTypeRef(list))
 	}
+}
+
+// startIOKitNotifications は IOKit のデバイス追加・削除通知を登録し、
+// 専用スレッドで RunLoop を回す。
+func (td *TouchDevices) startIOKitNotifications() error {
+	td.notifyPort = C.IONotificationPortCreate(0) // 0 = kIOMainPortDefault
+	if td.notifyPort == nil {
+		return fmt.Errorf("IONotificationPortCreate failed")
+	}
+
+	className := C.CString("AppleMultitouchDevice")
+	kr := C.setup_iokit_notifications(td.notifyPort, className, &td.addIter, &td.removeIter)
+	C.free(unsafe.Pointer(className))
+
+	if kr != C.KERN_SUCCESS {
+		C.cleanup_iokit_notifications(td.notifyPort, td.addIter, td.removeIter)
+		td.notifyPort = nil
+		td.addIter = 0
+		td.removeIter = 0
+		return fmt.Errorf("setup_iokit_notifications failed: %d", kr)
+	}
+
+	// 専用ゴルーチンで RunLoop を回す（OS スレッドに固定）
+	started := make(chan struct{})
+	td.done = make(chan struct{})
+	go func() {
+		runtime.LockOSThread()
+		rl := C.CFRunLoopGetCurrent()
+		td.mu.Lock()
+		td.runLoop = rl
+		td.mu.Unlock()
+
+		source := C.IONotificationPortGetRunLoopSource(td.notifyPort)
+		C.CFRunLoopAddSource(rl, source, C.kCFRunLoopDefaultMode)
+		close(started)
+		C.CFRunLoopRun()
+		close(td.done)
+	}()
+	<-started
+
+	return nil
+}
+
+// stopIOKitNotifications は IOKit 通知の RunLoop を停止し、リソースを解放する。
+func (td *TouchDevices) stopIOKitNotifications() {
+	td.mu.Lock()
+	rl := td.runLoop
+	td.runLoop = 0
+	td.mu.Unlock()
+
+	if rl != 0 {
+		C.CFRunLoopStop(rl)
+		if td.done != nil {
+			<-td.done
+		}
+	}
+
+	C.cleanup_iokit_notifications(td.notifyPort, td.addIter, td.removeIter)
+	td.notifyPort = nil
+	td.addIter = 0
+	td.removeIter = 0
 }
 
 // goTouchCallback は bridge_touch_callback (C) から呼ばれる cgo export 関数。
