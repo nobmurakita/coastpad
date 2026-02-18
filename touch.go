@@ -24,15 +24,15 @@ func (a *App) onTouchFrame(fingerCount int, timestamp float64) {
 // touchAction はタッチフレームで実行するアクションを表す。
 // prepareTouchFrame が mutex 内で準備し、executeTouchAction が mutex 外で実行する。
 type touchAction struct {
-	warpX, warpY       float64      // ドラッグ追従開始時のワープ先
-	needWarp           bool         // カーソルワープが必要か
-	syncX, syncY       float64      // ドラッグ追従のイベント位置
-	syncDx, syncDy     int          // ドラッグ追従の整数デルタ
-	needDragSync       bool         // ドラッグイベントの発行が必要か
-	releaseX, releaseY float64      // ドラッグ終了時の位置
-	needDragEnd        bool         // ドラッグセッションの終了が必要か（ワープ付き）
-	needMouseUpOnly    bool         // mouseUp のみ発行（カーソルワープなし）
-	pending            eventRef     // 解放するマウスアップ
+	warpX, warpY       float64  // ドラッグ追従開始時のワープ先
+	needWarp           bool     // カーソルワープが必要か
+	syncX, syncY       float64  // ドラッグ追従のイベント位置
+	syncDx, syncDy     int      // ドラッグ追従の整数デルタ
+	needDragSync       bool     // ドラッグイベントの発行が必要か
+	releaseX, releaseY float64  // ドラッグ終了時の位置
+	needDragEnd        bool     // ドラッグセッションの終了が必要か（ワープ付き）
+	needMouseUpOnly    bool     // mouseUp のみ発行（カーソルワープなし）
+	pending            eventRef // 解放するマウスアップ
 }
 
 // prepareTouchFrame は mutex 内でタッチフレームの状態を計算する。

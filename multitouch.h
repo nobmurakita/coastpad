@@ -2,7 +2,6 @@
 #define MULTITOUCH_H
 
 #include <CoreFoundation/CoreFoundation.h>
-#include <IOKit/IOKitLib.h>
 
 // MultitouchSupport.framework 構造体定義（プライベート API）
 //
@@ -56,12 +55,5 @@ extern void MTDeviceStop(MTDeviceRef);
 
 // C→Go コールバックブリッジ
 int bridge_touch_callback(MTDeviceRef device, Finger *data, int dataNum, double timestamp, int frame);
-
-// IOKit デバイス変更通知
-void bridge_iokit_callback(void *refcon, io_iterator_t iterator);
-kern_return_t setup_iokit_notifications(IONotificationPortRef port,
-    const char *className, io_iterator_t *addIter, io_iterator_t *removeIter);
-void cleanup_iokit_notifications(IONotificationPortRef port,
-    io_iterator_t addIter, io_iterator_t removeIter);
 
 #endif
