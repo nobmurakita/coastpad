@@ -1,4 +1,4 @@
-// antifriction-trackpad: トラックパッドに慣性カーソル移動を追加する。
+// CoastPad: トラックパッドに慣性カーソル移動を追加する。
 // 指を素早く離すとカーソルが滑り続け、指数減衰で自然に停止する。
 package main
 
@@ -27,6 +27,6 @@ func main() {
 		app.Stop()
 	}()
 
-	fmt.Println("antifriction-trackpad started. Press Ctrl+C to stop.")
+	fmt.Println("CoastPad started. Press Ctrl+C to stop.")
 	app.Run()
 }

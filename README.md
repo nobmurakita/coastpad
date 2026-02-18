@@ -1,4 +1,4 @@
-# antifriction-trackpad
+# CoastPad
 
 macOS トラックパッドに慣性カーソル移動を追加するツール。
 
@@ -21,7 +21,7 @@ macOS トラックパッドに慣性カーソル移動を追加するツール�
 
 ```bash
 go build
-./antifriction-trackpad
+./coastpad
 ```
 
 初回実行時にアクセシビリティ権限の許可が必要（システム設定 → プライバシーとセキュリティ → アクセシビリティ）。
