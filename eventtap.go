@@ -4,23 +4,7 @@ package main
 
 /*
 #cgo LDFLAGS: -framework CoreGraphics
-#include <CoreGraphics/CoreGraphics.h>
-
-extern CGEventRef bridge_event_tap_callback(CGEventTapProxy proxy, CGEventType type,
-                                            CGEventRef event, void *userInfo);
-
-// createEventTap は kCGEventLeftMouseDown と kCGEventLeftMouseUp を傍受する EventTap を作成する。
-static inline CFMachPortRef createEventTap() {
-    CGEventMask mask = (1 << kCGEventLeftMouseDown) | (1 << kCGEventLeftMouseUp);
-    return CGEventTapCreate(
-        kCGSessionEventTap,
-        kCGHeadInsertEventTap,
-        kCGEventTapOptionDefault,
-        mask,
-        bridge_event_tap_callback,
-        NULL
-    );
-}
+#include "eventtap.h"
 */
 import "C"
 import (
@@ -31,7 +15,15 @@ import (
 
 // startEventTap は CGEventTap を作成し、専用スレッドで RunLoop を回す。
 func (a *App) startEventTap() error {
-	tap := C.createEventTap()
+	mask := C.CGEventMask((1 << C.kCGEventLeftMouseDown) | (1 << C.kCGEventLeftMouseUp))
+	tap := C.CGEventTapCreate(
+		C.kCGSessionEventTap,
+		C.kCGHeadInsertEventTap,
+		C.kCGEventTapOptionDefault,
+		mask,
+		C.CGEventTapCallBack(C.bridge_event_tap_callback),
+		nil,
+	)
 	if tap == 0 {
 		return fmt.Errorf("CGEventTapCreate failed (accessibility permission required)")
 	}

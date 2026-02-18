@@ -4,46 +4,6 @@ package main
 /*
 #cgo LDFLAGS: -framework CoreGraphics
 #include <CoreGraphics/CoreGraphics.h>
-
-// warpCursorPosition はイベントを発行せずカーソルを移動する。
-CGError warpCursorPosition(CGFloat x, CGFloat y) {
-	CGPoint point = CGPointMake(x, y);
-	return CGWarpMouseCursorPosition(point);
-}
-
-// associateMouseCursor はマウスとカーソルの関連付けを復元する。
-CGError associateMouseCursor() {
-	return CGAssociateMouseAndMouseCursorPosition(true);
-}
-
-// setEventLocation はイベントの位置を設定する。
-static inline void setEventLocation(CGEventRef event, CGFloat x, CGFloat y) {
-	CGEventSetLocation(event, CGPointMake(x, y));
-}
-
-// getScreenBounds はすべてのディスプレイの結合バウンディングボックスを返す。
-static inline void getScreenBounds(CGFloat *outMinX, CGFloat *outMinY,
-                                   CGFloat *outMaxX, CGFloat *outMaxY) {
-	uint32_t count = 0;
-	CGGetActiveDisplayList(0, NULL, &count);
-	if (count == 0) {
-		*outMinX = 0; *outMinY = 0; *outMaxX = 1920; *outMaxY = 1080;
-		return;
-	}
-	// 最大16ディスプレイをサポート（macOS の実用上十分な上限）
-	CGDirectDisplayID displays[16];
-	if (count > 16) count = 16;
-	CGGetActiveDisplayList(count, displays, &count);
-
-	CGRect bounds = CGDisplayBounds(displays[0]);
-	for (uint32_t i = 1; i < count; i++) {
-		bounds = CGRectUnion(bounds, CGDisplayBounds(displays[i]));
-	}
-	*outMinX = bounds.origin.x;
-	*outMinY = bounds.origin.y;
-	*outMaxX = bounds.origin.x + bounds.size.width;
-	*outMaxY = bounds.origin.y + bounds.size.height;
-}
 */
 import "C"
 import (
@@ -52,13 +12,6 @@ import (
 )
 
 // --- 基本カーソル操作 ---
-
-// screenBounds はすべてのディスプレイの結合バウンディングボックスを返す。
-func screenBounds() (minX, minY, maxX, maxY float64) {
-	var cMinX, cMinY, cMaxX, cMaxY C.CGFloat
-	C.getScreenBounds(&cMinX, &cMinY, &cMaxX, &cMaxY)
-	return float64(cMinX), float64(cMinY), float64(cMaxX), float64(cMaxY)
-}
 
 // getMouseLocation は現在のカーソル位置をスクリーン座標で返す。
 // CGEvent の生成に失敗した場合は ok=false を返す。
@@ -102,13 +55,13 @@ func moveMouse(dx, dy float64) {
 // CGWarpMouseCursorPosition はマウスとカーソルの関連付けを一時的に解除するため、
 // 使用後は reassociateMouse を呼ぶこと（endDragSession は両方を行う）。
 func warpCursor(x, y float64) {
-	C.warpCursorPosition(C.CGFloat(x), C.CGFloat(y))
+	C.CGWarpMouseCursorPosition(C.CGPointMake(C.CGFloat(x), C.CGFloat(y)))
 }
 
 // reassociateMouse はマウスとカーソルの関連付けを復元する。
 // CGWarpMouseCursorPosition で解除された関連付けを戻す。
 func reassociateMouse() {
-	C.associateMouseCursor()
+	C.CGAssociateMouseAndMouseCursorPosition(C.boolean_t(1))
 }
 
 // --- イベント操作 ---
@@ -129,7 +82,7 @@ func endDragSession(pending C.CGEventRef, x, y float64) {
 // mutex 外で呼ぶこと。
 func releasePendingMouseUpAt(event C.CGEventRef, x, y float64) {
 	if event != 0 {
-		C.setEventLocation(event, C.CGFloat(x), C.CGFloat(y))
+		C.CGEventSetLocation(event, C.CGPointMake(C.CGFloat(x), C.CGFloat(y)))
 		C.CGEventPost(C.kCGHIDEventTap, event)
 		C.CFRelease(C.CFTypeRef(event))
 	}
@@ -228,4 +181,29 @@ func (dp *dragPoster) post(x, y float64, dx, dy int) {
 	C.CGEventSetIntegerValueField(event, C.kCGMouseEventClickState, 1)
 	C.CGEventSetDoubleValueField(event, C.kCGMouseEventPressure, 1.0)
 	C.CGEventPost(C.kCGHIDEventTap, event)
+}
+
+// --- ディスプレイ情報 ---
+
+// screenBounds はすべてのディスプレイの結合バウンディングボックスを返す。
+func screenBounds() (minX, minY, maxX, maxY float64) {
+	var count C.uint32_t
+	C.CGGetActiveDisplayList(0, nil, &count)
+	if count == 0 {
+		return 0, 0, 1920, 1080
+	}
+	// 最大16ディスプレイをサポート（macOS の実用上十分な上限）
+	if count > 16 {
+		count = 16
+	}
+	var displays [16]C.CGDirectDisplayID
+	C.CGGetActiveDisplayList(count, &displays[0], &count)
+
+	bounds := C.CGDisplayBounds(displays[0])
+	for i := C.uint32_t(1); i < count; i++ {
+		bounds = C.CGRectUnion(bounds, C.CGDisplayBounds(displays[i]))
+	}
+	return float64(bounds.origin.x), float64(bounds.origin.y),
+		float64(bounds.origin.x+bounds.size.width),
+		float64(bounds.origin.y+bounds.size.height)
 }
