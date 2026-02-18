@@ -1,10 +1,6 @@
 // app.go: App 構造体・ライフサイクル管理。
 package main
 
-/*
-#include <CoreGraphics/CoreGraphics.h>
-*/
-import "C"
 import (
 	"fmt"
 	"sync"
@@ -62,14 +58,14 @@ type App struct {
 	wasMultiFingerDrag bool         // 現在のドラッグが複数指で開始されたか
 	coastX, coastY     float64      // コースト中のカーソル位置追跡
 	accumX, accumY     float64      // ドラッグイベント用の端数デルタ蓄積
-	pendingMouseUp     C.CGEventRef // 保留中のマウスアップ（CFRetain 済み）
+	pendingMouseUp     eventRef     // 保留中のマウスアップ（CFRetain 済み）
 
 	// 画面バウンドキャッシュ（コースト開始時に取得、clampToScreen で使用）
 	screenMinX, screenMinY float64
 	screenMaxX, screenMaxY float64
 
-	eventTapRef     C.CFMachPortRef // タイムアウト再有効化用
-	eventTapRunLoop C.CFRunLoopRef  // 停止時の CFRunLoopStop 用
+	eventTapRef     machPortRef  // タイムアウト再有効化用
+	eventTapRunLoop runLoopRef   // 停止時の CFRunLoopStop 用
 	eventTapDone    chan struct{}   // RunLoop goroutine の終了通知
 
 	devices  *TouchDevices
