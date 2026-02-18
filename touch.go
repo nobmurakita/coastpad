@@ -108,7 +108,10 @@ func (a *App) handleTouchDuringPending(fingerCount int, x, y, timestamp float64)
 	hasMoved := math.Abs(x-a.coastX) > dragFollowMovementThreshold ||
 		math.Abs(y-a.coastY) > dragFollowMovementThreshold
 
-	if !hasMoved && fingerCount > 1 {
+	if !hasMoved && fingerCount == 1 {
+		// 判定中（1本指、移動なし）→ カーソル位置を記録のみ
+		a.recordCursor(x, y, timestamp)
+	} else if !hasMoved {
 		// 移動前に複数指検出 → ドラッグ追従モードへ
 		action.warpX = a.coastX
 		action.warpY = a.coastY
@@ -118,7 +121,7 @@ func (a *App) handleTouchDuringPending(fingerCount int, x, y, timestamp float64)
 		a.accumY = 0
 		a.histLen = 0
 		a.recordCursor(a.coastX, a.coastY, timestamp)
-	} else if hasMoved {
+	} else {
 		// 移動検出 → コースト位置で mouseUp を発行しドラッグを終了する
 		action.releaseX = a.coastX
 		action.releaseY = a.coastY
@@ -127,9 +130,6 @@ func (a *App) handleTouchDuringPending(fingerCount int, x, y, timestamp float64)
 		a.pendingMouseUp = 0
 		a.isLeftButtonDown = false
 		a.dragPhase = dragPhaseNone
-		a.recordCursor(x, y, timestamp)
-	} else {
-		// 判定中（1本指、移動なし）→ カーソル位置を記録のみ
 		a.recordCursor(x, y, timestamp)
 	}
 
