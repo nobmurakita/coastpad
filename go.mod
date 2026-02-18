@@ -1,3 +1,3 @@
-module antifriction-trackpad
+module coastpad
 
 go 1.23
