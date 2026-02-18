@@ -18,6 +18,8 @@ type MTDeviceRef = unsafe.Pointer
 
 // TouchDevices はタッチデバイスのリストとコールバック登録を管理する。
 type TouchDevices struct {
+	// mu は devs/list のスワップを保護する。RefreshDevices（IOKit RunLoop スレッド）と
+	// StopAll（メインゴルーチン）の並行アクセスを安全にするために必要。
 	mu   sync.Mutex
 	list C.CFArrayRef            // MTDeviceCreateList で取得した配列（デバイス参照の寿命を保持）
 	devs map[uintptr]MTDeviceRef // ポインタ値 → デバイス参照（差分検出用）
@@ -31,6 +33,7 @@ func NewTouchDevices() *TouchDevices {
 }
 
 // RefreshDevices は現在のデバイスリストを取得し、コールバックを再登録する。
+// Open からの初回呼び出しの後は、IOKit RunLoop スレッドからのみシリアルに呼ばれる。
 func (td *TouchDevices) RefreshDevices() {
 	newList := C.MTDeviceCreateList()
 

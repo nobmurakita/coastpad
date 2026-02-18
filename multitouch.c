@@ -4,6 +4,7 @@
 #include "multitouch.h"
 #include "_cgo_export.h"
 
+// 戻り値の型・意味はプライベート API のため不明。慣例的に 0 を返す。
 int bridge_touch_callback(MTDeviceRef device, Finger *data, int dataNum, double timestamp, int frame) {
     goTouchCallback(device, data, dataNum, timestamp, frame);
     return 0;

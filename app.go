@@ -64,6 +64,7 @@ type App struct {
 	screenMinX, screenMinY float64
 	screenMaxX, screenMaxY float64
 
+	// EventTap（CGEventTap の管理）
 	eventTapRef     machPortRef   // タイムアウト再有効化用
 	eventTapRunLoop runLoopRef    // 停止時の CFRunLoopStop 用
 	eventTapDone    chan struct{} // RunLoop goroutine の終了通知
@@ -83,22 +84,27 @@ func NewApp() *App {
 
 // Open はタッチデバイスを検出し、コールバック・EventTap・デバイス通知を登録する。
 func (a *App) Open() error {
-	// IOKit デバイス変更通知の開始
-	notifier, err := StartDeviceNotifier()
-	if err != nil {
-		return fmt.Errorf("failed to start device notifier: %w", err)
-	}
-	a.notifier = notifier
-
 	// タッチデバイスの初期検出とコールバック登録
 	a.touchDevices = NewTouchDevices()
 	a.touchDevices.RefreshDevices()
 
 	if err := a.startEventTap(); err != nil {
-		a.notifier.Stop()
 		a.touchDevices.StopAll()
 		return fmt.Errorf("failed to start event tap: %w", err)
 	}
+
+	// IOKit デバイス変更通知の開始。
+	// touchDevices 初期化完了後に開始することで、onDeviceChanged から
+	// a.touchDevices へのデータ競合を防ぐ。goroutine 生成が happens-before を
+	// 確立するため、通知コールバックから a.touchDevices が確実に可視になる。
+	notifier, err := StartDeviceNotifier()
+	if err != nil {
+		a.stopEventTap()
+		a.touchDevices.StopAll()
+		return fmt.Errorf("failed to start device notifier: %w", err)
+	}
+	a.notifier = notifier
+
 	return nil
 }
 
@@ -106,6 +112,9 @@ func (a *App) Open() error {
 func (a *App) Stop() {
 	a.stopOnce.Do(func() {
 		close(a.stop)
+		// notifier.Stop は RunLoop goroutine の終了を待つため、
+		// 完了後は onDeviceChanged が呼ばれないことが保証される。
+		// この順序により touchDevices.StopAll 後の RefreshDevices 呼び出しを防ぐ。
 		a.notifier.Stop()
 		a.touchDevices.StopAll()
 		a.stopEventTap()
@@ -119,10 +128,9 @@ func (a *App) Stop() {
 }
 
 // onDeviceChanged は IOKit 通知から呼ばれ、デバイスリストを更新する。
+// Open で touchDevices 初期化後に notifier を開始するため、
+// この時点で a.touchDevices は必ず有効。
 func (a *App) onDeviceChanged() {
-	if a.touchDevices == nil {
-		return
-	}
 	a.touchDevices.RefreshDevices()
 }
 

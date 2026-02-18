@@ -194,8 +194,9 @@ func (dp *dragPoster) post(x, y float64, dx, dy int) {
 // screenBounds はすべてのディスプレイの結合バウンディングボックスを返す。
 func screenBounds() (minX, minY, maxX, maxY float64) {
 	var count C.uint32_t
-	C.CGGetActiveDisplayList(0, nil, &count)
-	if count == 0 {
+	if C.CGGetActiveDisplayList(0, nil, &count) != 0 || count == 0 {
+		// ディスプレイ情報を取得できない場合の安全なフォールバック。
+		// 慣性カーソルがクランプされる範囲に使われるだけなので、実用上問題ない。
 		return 0, 0, 1920, 1080
 	}
 	// 最大16ディスプレイをサポート（macOS の実用上十分な上限）
@@ -203,7 +204,9 @@ func screenBounds() (minX, minY, maxX, maxY float64) {
 		count = 16
 	}
 	var displays [16]C.CGDirectDisplayID
-	C.CGGetActiveDisplayList(count, &displays[0], &count)
+	if C.CGGetActiveDisplayList(count, &displays[0], &count) != 0 {
+		return 0, 0, 1920, 1080
+	}
 
 	bounds := C.CGDisplayBounds(displays[0])
 	for i := C.uint32_t(1); i < count; i++ {
