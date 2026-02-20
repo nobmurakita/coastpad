@@ -17,11 +17,23 @@ macOS トラックパッドに慣性カーソル移動を追加するツール�
 3. 指が離れた瞬間のカーソル速度を算出
 4. ~60Hz のループで慣性移動を適用し、指数減衰で減速
 
-## ビルド・実行
+## インストール
+
+```bash
+go install github.com/nobmurakita/coastpad@latest
+```
+
+または手動でビルド:
 
 ```bash
 go build
 ./coastpad
+```
+
+## 実行
+
+```bash
+coastpad
 ```
 
 初回実行時にアクセシビリティ権限の許可が必要（システム設定 → プライバシーとセキュリティ → アクセシビリティ）。
@@ -31,5 +43,5 @@ Ctrl+C で終了。
 ## 要件
 
 - macOS
-- Go 1.23+
+- Go 1.25+
 - トラックパッド搭載の Mac（外付け Magic Trackpad も可）

@@ -1,3 +1,3 @@
-module coastpad
+module github.com/nobmurakita/coastpad
 
-go 1.23
+go 1.25
