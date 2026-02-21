@@ -30,6 +30,11 @@ const (
 	dragPhasePendingDecision                  // コースト後1本指タッチ、判定保留中
 )
 
+// displayRect はディスプレイの矩形範囲を表す（ピクセル座標、両端含む）。
+type displayRect struct {
+	minX, minY, maxX, maxY float64
+}
+
 // cursorRecord はある時点のカーソル位置を保持する。
 type cursorRecord struct {
 	x, y      float64
@@ -61,8 +66,8 @@ type App struct {
 	pendingMouseUp     eventRef  // 保留中のマウスアップ（CFRetain 済み）
 
 	// 画面バウンドキャッシュ（コースト開始時に取得、clampToScreen で使用）
-	screenMinX, screenMinY float64
-	screenMaxX, screenMaxY float64
+	screens        []displayRect
+	coastScreenIdx int // コースト中カーソルが最後にいたディスプレイのインデックス
 
 	// EventTap（CGEventTap の管理）
 	eventTapRef     machPortRef   // タイムアウト再有効化用

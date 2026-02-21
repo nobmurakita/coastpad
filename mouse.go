@@ -178,13 +178,14 @@ func (dp *dragPoster) post(x, y float64, dx, dy int) {
 
 // --- ディスプレイ情報 ---
 
-// screenBounds はすべてのディスプレイの結合バウンディングボックスを返す。
-func screenBounds() (minX, minY, maxX, maxY float64) {
+// screenBounds は各ディスプレイの矩形をスライスで返す。
+// maxX/maxY はピクセル境界の内側（-1 補正済み）。
+func screenBounds() []displayRect {
 	var count C.uint32_t
 	if C.CGGetActiveDisplayList(0, nil, &count) != 0 || count == 0 {
 		// ディスプレイ情報を取得できない場合の安全なフォールバック。
 		// 慣性カーソルがクランプされる範囲に使われるだけなので、実用上問題ない。
-		return 0, 0, 1920, 1080
+		return []displayRect{{0, 0, 1919, 1079}}
 	}
 	// 最大16ディスプレイをサポート（macOS の実用上十分な上限）
 	if count > 16 {
@@ -192,14 +193,18 @@ func screenBounds() (minX, minY, maxX, maxY float64) {
 	}
 	var displays [16]C.CGDirectDisplayID
 	if C.CGGetActiveDisplayList(count, &displays[0], &count) != 0 {
-		return 0, 0, 1920, 1080
+		return []displayRect{{0, 0, 1919, 1079}}
 	}
 
-	bounds := C.CGDisplayBounds(displays[0])
-	for i := C.uint32_t(1); i < count; i++ {
-		bounds = C.CGRectUnion(bounds, C.CGDisplayBounds(displays[i]))
+	rects := make([]displayRect, count)
+	for i := C.uint32_t(0); i < count; i++ {
+		b := C.CGDisplayBounds(displays[i])
+		rects[i] = displayRect{
+			minX: float64(b.origin.x),
+			minY: float64(b.origin.y),
+			maxX: float64(b.origin.x+b.size.width) - 1,
+			maxY: float64(b.origin.y+b.size.height) - 1,
+		}
 	}
-	return float64(bounds.origin.x), float64(bounds.origin.y),
-		float64(bounds.origin.x + bounds.size.width),
-		float64(bounds.origin.y + bounds.size.height)
+	return rects
 }
