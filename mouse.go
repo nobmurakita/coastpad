@@ -51,19 +51,6 @@ func setMouseLocation(x, y float64) {
 	C.CGEventPost(C.kCGHIDEventTap, event)
 }
 
-// moveMouse はカーソルを相対移動する。
-// 慣性移動中（ユーザーが指を離している間）にのみ呼ばれることを前提としている。
-// getMouseLocation と setMouseLocation の間にユーザーがカーソルを動かすと
-// ユーザーの移動が上書きされる可能性がある（CoreGraphics に相対移動 API がないための制約）。
-// カーソル位置の取得に失敗した場合は何もしない。
-func moveMouse(dx, dy float64) {
-	x, y, ok := getMouseLocation()
-	if !ok {
-		return
-	}
-	setMouseLocation(x+dx, y+dy)
-}
-
 // warpCursor はイベントを発行せずにカーソル位置を移動する。
 // 入力抑制が約0.25秒発生するため、直後のユーザー操作が不要な場面でのみ使うこと。
 // CGWarpMouseCursorPosition はマウスとカーソルの関連付けを一時的に解除するため、

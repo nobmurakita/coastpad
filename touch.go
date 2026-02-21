@@ -184,6 +184,14 @@ func (a *App) handleRelease(x, y float64) touchAction {
 		action = a.releaseDefault(x, y)
 	}
 
+	// 通常コーストが開始される場合、位置追跡と画面バウンドを初期化する。
+	// ドラッグコーストは releaseDefault 内で別途初期化済み。
+	if (a.vx != 0 || a.vy != 0) && a.dragPhase == dragPhaseNone {
+		a.coastX = x
+		a.coastY = y
+		a.cacheScreenBounds()
+	}
+
 	return action
 }
 
