@@ -7,7 +7,8 @@ import "math"
 // coastAction はコーストループの1フレームで実行するアクションを表す。
 // prepareCoastFrame が mutex 内で準備し、executeCoastFrame が mutex 外で実行する。
 type coastAction struct {
-	moveDx, moveDy float64  // 通常の慣性移動量
+	moveX, moveY   float64  // 通常の慣性移動先（絶対座標）
+	hasMove        bool     // 通常の慣性フレームか
 	dragX, dragY   float64  // ドラッグ慣性のカーソル位置
 	dragDx, dragDy int      // ドラッグイベントの整数デルタ
 	isDragCoasting bool     // ドラッグ慣性フレームか
@@ -39,8 +40,13 @@ func (a *App) prepareCoastFrame(dt float64) coastAction {
 		action.dragY = a.coastY
 		action.isDragCoasting = true
 	} else {
-		action.moveDx = a.vx * dt
-		action.moveDy = a.vy * dt
+		// 通常コースト: 位置を更新し画面端でクランプする
+		a.coastX += a.vx * dt
+		a.coastY += a.vy * dt
+		a.clampToScreen()
+		action.moveX = a.coastX
+		action.moveY = a.coastY
+		action.hasMove = true
 	}
 
 	a.applyDecay(dt)
@@ -61,8 +67,8 @@ func (a *App) prepareCoastFrame(dt float64) coastAction {
 func (a *App) executeCoastFrame(action coastAction, dp *dragPoster) {
 	if action.isDragCoasting {
 		dp.post(action.dragX, action.dragY, action.dragDx, action.dragDy)
-	} else if action.moveDx != 0 || action.moveDy != 0 {
-		moveMouse(action.moveDx, action.moveDy)
+	} else if action.hasMove {
+		setMouseLocation(action.moveX, action.moveY)
 	}
 	if action.coastEnded {
 		endDragSession(action.pending, action.dragX, action.dragY)
