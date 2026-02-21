@@ -35,11 +35,12 @@ func (a *App) onMouseDown() {
 // マウスアップを消費した場合は true を返す。
 //
 // ドラッグ慣性中: mouseUp を保留してドラッグセッションを維持する。
-// ドラッグ中かつタッチ中: onTouchFrame のリリース判定を待つため一時保留する。
+// 複数指ドラッグ中かつタッチ中: onTouchFrame のリリース判定を待つため一時保留する。
+// 1本指操作では mouseUp を保留しない（押し込み解除後の移動をドラッグにしない）。
 func (a *App) handleMouseUp(event eventRef) (suppressed bool) {
 	a.mu.Lock()
 
-	if a.dragPhase == dragPhaseCoasting || (a.isLeftButtonDown && a.isTouched) {
+	if a.dragPhase == dragPhaseCoasting || (a.isLeftButtonDown && a.isTouched && a.wasMultiFingerDrag) {
 		retainEvent(event)
 		old := a.pendingMouseUp
 		a.pendingMouseUp = event
