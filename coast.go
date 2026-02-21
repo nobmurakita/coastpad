@@ -77,22 +77,31 @@ func (a *App) executeCoastFrame(action coastAction, dp *dragPoster) {
 	releasePendingMouseUp(action.pending)
 }
 
-// clampToScreen はコースト中のカーソル位置を画面端にクランプする。
-// クランプされた軸の速度はゼロにする。
+// clampToScreen はコースト中のカーソル位置をディスプレイ内にクランプする。
+// いずれかのディスプレイ矩形内にあれば coastScreenIdx を更新して終了。
+// どのディスプレイにも属さない場合、最後にいたディスプレイの端にクランプし、
+// クランプで変化した軸の速度をゼロにする。
 // mu をロックした状態で呼ぶこと。
 func (a *App) clampToScreen() {
-	if a.coastX < a.screenMinX {
-		a.coastX = a.screenMinX
-		a.vx = 0
-	} else if a.coastX > a.screenMaxX {
-		a.coastX = a.screenMaxX
+	for i, s := range a.screens {
+		if a.coastX >= s.minX && a.coastX <= s.maxX &&
+			a.coastY >= s.minY && a.coastY <= s.maxY {
+			a.coastScreenIdx = i
+			return
+		}
+	}
+
+	// 最後にいたディスプレイの端にクランプする
+	s := a.screens[a.coastScreenIdx]
+	cx := math.Max(s.minX, math.Min(a.coastX, s.maxX))
+	cy := math.Max(s.minY, math.Min(a.coastY, s.maxY))
+
+	if cx != a.coastX {
+		a.coastX = cx
 		a.vx = 0
 	}
-	if a.coastY < a.screenMinY {
-		a.coastY = a.screenMinY
-		a.vy = 0
-	} else if a.coastY > a.screenMaxY {
-		a.coastY = a.screenMaxY
+	if cy != a.coastY {
+		a.coastY = cy
 		a.vy = 0
 	}
 }
@@ -103,12 +112,15 @@ func (a *App) clampToScreen() {
 // screenBounds() は CGGetActiveDisplayList を呼ぶ cgo 呼び出しだが、
 // 単純なクエリでありコールバックやブロッキングのリスクがないため mutex 内で安全に呼べる。
 func (a *App) cacheScreenBounds() {
-	minX, minY, maxX, maxY := screenBounds()
-	a.screenMinX = minX
-	a.screenMinY = minY
-	// maxX/maxY はピクセル境界の外側なので -1 する
-	a.screenMaxX = maxX - 1
-	a.screenMaxY = maxY - 1
+	a.screens = screenBounds()
+	a.coastScreenIdx = 0
+	for i, s := range a.screens {
+		if a.coastX >= s.minX && a.coastX <= s.maxX &&
+			a.coastY >= s.minY && a.coastY <= s.maxY {
+			a.coastScreenIdx = i
+			break
+		}
+	}
 }
 
 // extractIntegerDelta は端数デルタを蓄積し、整数部を抽出して返す。
