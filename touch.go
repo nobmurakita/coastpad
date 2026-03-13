@@ -162,6 +162,8 @@ func (a *App) handleTouchDefault(fingerCount int, x, y, timestamp float64) touch
 				action.needDragSync = true
 				action.syncX = x
 				action.syncY = y
+				a.coastX = x
+				a.coastY = y
 			}
 		}
 		a.recordCursor(x, y, timestamp)
